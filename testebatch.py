@@ -1,90 +1,108 @@
 from ultralytics import YOLO
 import cv2
-import torch
-import time
-import sys
-import termios
-import tty
-import select
+import serial
 
-# Função para capturar tecla pressionada sem bloquear
-def get_key():
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
+ser = serial.Serial('/dev/ttyACM0', 9600)  # Defina a porta serial correta e a velocidade (baudrate)
 
-# Carregar o modelo
+
 model = YOLO("piroka.pt")
 
 # Parâmetros adicionais
-conf_threshold = 0.2  # Limite de confiança
+conf_threshold = 0.6  # Limite de confiança
 classes = [0, 1]  # Classes a serem detectadas
-batch_size = 5  # Tamanho do batch
+batch_size = 4 # Tamanho do batch
 
-# Definir dispositivo para usar a GPU (se disponível)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model.to(device)
 
-cap = cv2.VideoCapture(0)  # Qual câmera usar
-camWidth = 160
-camHeight = 90
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, camWidth)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, camHeight)
+cap = cv2.VideoCapture(0)
+camWidth = 240
+camHeight = 180
 
-# Verificar se a câmera foi aberta corretamente
-if not cap.isOpened():
-    print("Erro ao abrir a câmera!")
-    exit()
+# Variável de controle para exibir ou não as detecções
+show_detections = True  
 
-# Limitação da taxa de quadros (FPS)
-frame_interval = 1 / 30  # fps
-last_time = time.time()
-
-# Lista para armazenar os frames do batch
+# Armazenar os frames para processamento em batch
 batch_frames = []
 
-print("Pressione 'q' para sair.")
-
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        print("Falha ao capturar o frame")
-        break
-
-    # Limitar a taxa de quadros
-    if time.time() - last_time < frame_interval:
-        continue
-    last_time = time.time()
-
-    # Redimensionar o frame e adicionar ao batch
-    frame_resized = cv2.resize(frame, (camWidth, camHeight))
-    batch_frames.append(frame_resized)
-
-    # Processar o batch quando atingir o tamanho definido
-    if len(batch_frames) == batch_size:
-        results = model.predict(source=batch_frames, conf=conf_threshold, classes=classes, show=False)
-
-        # Processar resultados (exemplo: imprimir informações das detecções)
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])  # Coordenadas da caixa delimitadora
-                conf = box.conf[0]  # Confiança da detecção
-                cls = int(box.cls[0])  # Classe detectada
-                print(f"Classe: {cls}, Confiança: {conf:.2f}, Caixa: ({x1}, {y1}, {x2}, {y2})")
-
-        # Limpar o batch após o processamento
-        batch_frames = []
-
-    # Verificar se a tecla 'q' foi pressionada
-    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-        if get_key() == 'q':
+    try:
+        ret, frame = cap.read()
+        if not ret:
             break
 
-# Liberar a captura e fechar janelas
+        # Redimensionar o frame
+        frame = cv2.resize(frame, (camWidth, camHeight))
+        batch_frames.append(frame)
+
+        # Processar o batch de frames
+        if len(batch_frames) == batch_size:
+            results = model.predict(source=batch_frames, conf=conf_threshold, classes=classes, show=False)
+
+            # Encontrar a caixa com maior confiança no lote
+            highest_conf = 0
+            best_box = None
+            best_frame_idx = None
+
+            for frame_idx, result in enumerate(results):
+                for box in result.boxes:
+                    conf = box.conf[0]  # Confiança da detecção
+                    if conf > highest_conf:
+                        highest_conf = conf
+                        best_box = box
+                        best_frame_idx = frame_idx
+
+            if best_box is not None:
+                # Obter as coordenadas da melhor caixa
+                coords = best_box.xyxy[0].tolist()
+                x1, y1, x2, y2 = map(int, coords)
+                conf = best_box.conf[0]
+                label = f'{best_box.cls[0]} {conf:.2f}'
+
+                # Calcular centro da caixa e erro em relação ao centro da câmera
+                box_center_x = (x1 + x2) // 2
+                box_center_y = (y1 + y2) // 2
+                cam_center_x = camWidth // 2
+                cam_center_y = camHeight // 2
+                error_x = box_center_x - cam_center_x
+                error_y = box_center_y - cam_center_y
+
+                print(f"Erro: ({error_x}) e Classe ({best_box.cls})")
+
+                # Desenhar no frame correspondente
+                if show_detections:
+                    frame_to_draw = batch_frames[best_frame_idx]
+                    cv2.rectangle(frame_to_draw, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.line(frame_to_draw, (box_center_x, box_center_y), (cam_center_x, box_center_y), (255, 0, 0), 2)
+                    cv2.line(frame_to_draw, (cam_center_x, cam_center_y), (cam_center_x, box_center_y), (0, 255, 0), 2)
+
+                    # Exibir informações no frame
+                    cv2.putText(frame_to_draw, f'Coords: ({x1},{y1}), ({x2},{y2})', (x1, y1 - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    cv2.putText(frame_to_draw, f'Error X: {error_x}', (box_center_x + 10, box_center_y - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+                    cv2.putText(frame_to_draw, f'Error Y: {error_y}', (cam_center_x + 10, box_center_y + 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    cv2.putText(frame_to_draw, label, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36, 255, 12), 2)
+                    
+
+                    # Mostrar o frame com detecções
+                    cv2.imshow('Detections', frame_to_draw)
+                    
+
+                # Enviar informações pela serial
+                info_to_send = f'{best_box.cls[0]};{error_x};{error_y}\n'
+                ser.write(info_to_send.encode())
+
+            # Limpar o lote de frames
+            batch_frames = []
+
+        # Fechar a janela se a tecla 'q' for pressionada
+        if show_detections and cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    except KeyboardInterrupt:
+        break
+
+# Liberar recursos
+ser.close()
 cap.release()
 cv2.destroyAllWindows()
