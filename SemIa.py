@@ -6,7 +6,7 @@ import os
 DIR_REF = "imagens_referencia/"
 arquivos = os.listdir(DIR_REF)
 
-# Inicializa ORB
+
 orb = cv2.ORB_create()
 
 # Armazena descritores das imagens de referência
