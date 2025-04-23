@@ -27,17 +27,11 @@ while True:
 
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Máscara para detectar bola preta
+    # Máscaras de cor
     mask_black = cv2.inRange(hsv, lower_black, upper_black)
-
-    # Máscara para detectar tons prateados (baixo tom de cor, brilho alto)
     mask_silver = cv2.inRange(hsv, lower_silver, upper_silver)
 
-    # Inicializa variáveis de detecção
-    bola_preta_detectada = False
-    bola_prata_detectada = False
-
-    # Processa a bola preta
+    # Detecta bola preta
     contours_black, _ = cv2.findContours(mask_black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for contour in contours_black:
         area = cv2.contourArea(contour)
@@ -47,38 +41,30 @@ while True:
             cy = y + h // 2
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
-            cv2.putText(frame, "Bola Preta Detectada", (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-            bola_preta_detectada = True
-            break
+            cv2.putText(frame, "Bola Preta", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (0, 0, 255), 2)
 
-    # Se a bola preta não foi detectada, procura pela bola prateada
-    if not bola_preta_detectada:
-        # Aplica blur na máscara prateada para suavizar
-        blurred_silver = cv2.GaussianBlur(mask_silver, (15, 15), 0)
+    # Detecta bola prateada com HoughCircles na máscara prateada
+    blurred_silver = cv2.GaussianBlur(mask_silver, (15, 15), 0)
+    circles_silver = cv2.HoughCircles(blurred_silver, cv2.HOUGH_GRADIENT, dp=1.2, minDist=30,
+                                      param1=50, param2=15, minRadius=10, maxRadius=50)
 
-        # Detecta círculos usando Hough apenas na máscara prateada
-        circles_silver = cv2.HoughCircles(blurred_silver, cv2.HOUGH_GRADIENT, dp=1.2, minDist=30,
-                                          param1=50, param2=15, minRadius=10, maxRadius=50)
-
-        if circles_silver is not None:
-            circles_silver = np.round(circles_silver[0, :]).astype("int")
-            (x, y, r) = circles_silver[0]
+    if circles_silver is not None:
+        circles_silver = np.round(circles_silver[0, :]).astype("int")
+        for (x, y, r) in circles_silver:
             cv2.circle(frame, (x, y), r, (255, 0, 0), 2)
             cv2.circle(frame, (x, y), 2, (255, 0, 0), 3)
-            cv2.putText(frame, "Bola Prateada Detectada", (x - 50, y - r - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-            bola_prata_detectada = True
+            cv2.putText(frame, "Bola Prateada", (x - 40, y - r - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (255, 0, 0), 2)
 
-    # Exibe os frames e máscaras
+    # Mostra janelas com resultados
     cv2.imshow("Frame Original", frame)
     cv2.imshow("Mascara Preta", mask_black)
     cv2.imshow("Mascara Prata", mask_silver)
 
-    # Pressione ESC para sair
+    # Tecla ESC para sair
     if cv2.waitKey(1) == 27:
         break
 
-# Libera a câmera e fecha janelas
 cap.release()
 cv2.destroyAllWindows()
