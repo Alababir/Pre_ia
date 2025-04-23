@@ -1,21 +1,23 @@
 import cv2
 import numpy as np
 
-# Intervalo HSV para bola preta
+# Intervalos HSV
 lower_black = np.array([0, 0, 0])
 upper_black = np.array([179, 255, 83])
 
-# Intervalo HSV para bola prateada (baixo tom de cor, brilho alto)
 lower_silver = np.array([0, 0, 120])
 upper_silver = np.array([179, 50, 255])
 
-# Inicializa a captura da câmera
+# Fundo branco em HSV (para remover da detecção prata)
+lower_white = np.array([0, 0, 230])
+upper_white = np.array([179, 30, 255])
+
+# Inicializa a câmera
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("Erro ao abrir a câmera")
     exit()
 
-# Definindo o intervalo de áreas para a bola preta
 MIN_AREA = 500
 MAX_AREA = 500000
 
@@ -25,15 +27,29 @@ while True:
         print("Erro na captura da câmera")
         break
 
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    # Aplica CLAHE para melhorar contraste
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    lab = cv2.merge((cl, a, b))
+    frame_clahe = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
-    # Máscaras de cor
-    # Remove fundo branco da imagem
-    mask_white = cv2.inRange(hsv, np.array([0, 0, 230]), np.array([179, 30, 255]))
-    mask_silver = cv2.bitwise_and(mask_silver, cv2.bitwise_not(mask_white))
+    hsv = cv2.cvtColor(frame_clahe, cv2.COLOR_BGR2HSV)
 
+    # Máscara da bola preta
+    mask_black = cv2.inRange(hsv, lower_black, upper_black)
 
-    # Detecta bola preta
+    # Máscara original da prata
+    mask_silver_raw = cv2.inRange(hsv, lower_silver, upper_silver)
+
+    # Máscara do fundo branco
+    mask_white = cv2.inRange(hsv, lower_white, upper_white)
+
+    # Remove o fundo branco da máscara da prata
+    mask_silver = cv2.bitwise_and(mask_silver_raw, cv2.bitwise_not(mask_white))
+
+    # ========== DETECÇÃO BOLA PRETA ==========
     contours_black, _ = cv2.findContours(mask_black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for contour in contours_black:
         area = cv2.contourArea(contour)
@@ -46,7 +62,7 @@ while True:
             cv2.putText(frame, "Bola Preta", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, (0, 0, 255), 2)
 
-    # Detecta bola prateada com HoughCircles na máscara prateada
+    # ========== DETECÇÃO BOLA PRATEADA ==========
     blurred_silver = cv2.GaussianBlur(mask_silver, (15, 15), 0)
     circles_silver = cv2.HoughCircles(blurred_silver, cv2.HOUGH_GRADIENT, dp=1.2, minDist=30,
                                       param1=50, param2=15, minRadius=10, maxRadius=50)
@@ -56,16 +72,16 @@ while True:
         for (x, y, r) in circles_silver:
             cv2.circle(frame, (x, y), r, (255, 0, 0), 2)
             cv2.circle(frame, (x, y), 2, (255, 0, 0), 3)
-            cv2.putText(frame, "Bola Prateada", (x - 40, y - r - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, (255, 0, 0), 2)
+            cv2.putText(frame, "Bola Prateada", (x - 40, y - r - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-    # Mostra janelas com resultados
+    # ========== EXIBIÇÃO ==========
     cv2.imshow("Frame Original", frame)
     cv2.imshow("Mascara Preta", mask_black)
-    cv2.imshow("Mascara Prata", mask_silver)
+    cv2.imshow("Mascara Prata (original)", mask_silver_raw)
+    cv2.imshow("Mascara Prata (fundo removido)", mask_silver)
 
-    # Tecla ESC para sair
-    if cv2.waitKey(1) == 27:
+    if cv2.waitKey(1) == 27:  # ESC
         break
 
 cap.release()
