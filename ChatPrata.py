@@ -1,0 +1,84 @@
+import cv2
+import numpy as np
+
+# Intervalo HSV para bola preta
+lower_black = np.array([0, 0, 0])
+upper_black = np.array([179, 255, 83])
+
+# Intervalo HSV para bola prateada (baixo tom de cor, brilho alto)
+lower_silver = np.array([0, 0, 120])
+upper_silver = np.array([179, 50, 255])
+
+# Inicializa a captura da câmera
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("Erro ao abrir a câmera")
+    exit()
+
+# Definindo o intervalo de áreas para a bola preta
+MIN_AREA = 500
+MAX_AREA = 500000
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("Erro na captura da câmera")
+        break
+
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Máscara para detectar bola preta
+    mask_black = cv2.inRange(hsv, lower_black, upper_black)
+
+    # Máscara para detectar tons prateados (baixo tom de cor, brilho alto)
+    mask_silver = cv2.inRange(hsv, lower_silver, upper_silver)
+
+    # Inicializa variáveis de detecção
+    bola_preta_detectada = False
+    bola_prata_detectada = False
+
+    # Processa a bola preta
+    contours_black, _ = cv2.findContours(mask_black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours_black:
+        area = cv2.contourArea(contour)
+        if MIN_AREA < area < MAX_AREA:
+            (x, y, w, h) = cv2.boundingRect(contour)
+            cx = x + w // 2
+            cy = y + h // 2
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
+            cv2.putText(frame, "Bola Preta Detectada", (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            bola_preta_detectada = True
+            break
+
+    # Se a bola preta não foi detectada, procura pela bola prateada
+    if not bola_preta_detectada:
+        # Aplica blur na máscara prateada para suavizar
+        blurred_silver = cv2.GaussianBlur(mask_silver, (15, 15), 0)
+
+        # Detecta círculos usando Hough apenas na máscara prateada
+        circles_silver = cv2.HoughCircles(blurred_silver, cv2.HOUGH_GRADIENT, dp=1.2, minDist=30,
+                                          param1=50, param2=15, minRadius=10, maxRadius=50)
+
+        if circles_silver is not None:
+            circles_silver = np.round(circles_silver[0, :]).astype("int")
+            (x, y, r) = circles_silver[0]
+            cv2.circle(frame, (x, y), r, (255, 0, 0), 2)
+            cv2.circle(frame, (x, y), 2, (255, 0, 0), 3)
+            cv2.putText(frame, "Bola Prateada Detectada", (x - 50, y - r - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            bola_prata_detectada = True
+
+    # Exibe os frames e máscaras
+    cv2.imshow("Frame Original", frame)
+    cv2.imshow("Mascara Preta", mask_black)
+    cv2.imshow("Mascara Prata", mask_silver)
+
+    # Pressione ESC para sair
+    if cv2.waitKey(1) == 27:
+        break
+
+# Libera a câmera e fecha janelas
+cap.release()
+cv2.destroyAllWindows()
