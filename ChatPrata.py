@@ -28,8 +28,10 @@ while True:
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
     # Máscaras de cor
-    mask_black = cv2.inRange(hsv, lower_black, upper_black)
-    mask_silver = cv2.inRange(hsv, lower_silver, upper_silver)
+    # Remove fundo branco da imagem
+    mask_white = cv2.inRange(hsv, np.array([0, 0, 230]), np.array([179, 30, 255]))
+    mask_silver = cv2.bitwise_and(mask_silver, cv2.bitwise_not(mask_white))
+
 
     # Detecta bola preta
     contours_black, _ = cv2.findContours(mask_black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
