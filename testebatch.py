@@ -5,7 +5,7 @@ import serial
 ser = serial.Serial('/dev/ttyACM0', 9600)  # Defina a porta serial correta e a velocidade (baudrate)
 
 
-model = YOLO("piroka.pt")
+model = YOLO("best.pt")
 
 # Parâmetros adicionais
 conf_threshold = 0.6  # Limite de confiança
